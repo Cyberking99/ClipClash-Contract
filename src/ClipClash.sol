@@ -85,4 +85,20 @@ contract ClipClash is Ownable, ReentrancyGuard {
         emit BattleCreated(battleCount, msg.sender, _category, _entryFee);
         emit ClipSubmitted(battleCount, msg.sender, _ipfsHash1);
     }
+
+    function submitClip(uint256 _battleId, string memory _ipfsHash2) external nonReentrant {
+        Battle storage battle = battles[_battleId];
+        require(battle.isActive, "Battle not active");
+        require(battle.creator2 == address(0), "Creator2 already exist");
+        require(bytes(battle.ipfsHash2).length == 0, "Clip already submitted");
+        require(bytes(_ipfsHash2).length > 0, "Invalid IPFS hash");
+
+        battle.creator2 = msg.sender;
+        clashToken.safeTransferFrom(msg.sender, address(this), battle.entryFee);
+
+        battle.ipfsHash2 = _ipfsHash2;
+        creatorBattles[msg.sender] = _battleId;
+
+        emit ClipSubmitted(_battleId, msg.sender, _ipfsHash2);
+    }
 }
