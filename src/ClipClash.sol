@@ -39,7 +39,6 @@ contract ClipClash is Ownable, ReentrancyGuard {
     event BattleCreated(
         uint256 indexed battleId,
         address creator1,
-        address creator2,
         string category,
         uint256 entryFee
     );
@@ -59,15 +58,13 @@ contract ClipClash is Ownable, ReentrancyGuard {
 
     // Create a new battle
     function createBattle(
-        address _creator2,
         string memory _category,
         uint256 _entryFee,
         string memory _ipfsHash1
     ) external nonReentrant {
-        require(_creator2 != msg.sender, "Cannot challenge yourself");
+        require(msg.sender != address(0), "Invalid creator");
         require(_entryFee >= MIN_ENTRY_FEE, "Entry fee too low");
         require(creatorBattles[msg.sender] == 0, "Finish your active battle");
-        require(creatorBattles[_creator2] == 0, "Opponent is in active battle");
         require(bytes(_ipfsHash1).length > 0, "Invalid IPFS hash");
         
         clashToken.safeTransferFrom(msg.sender, address(this), _entryFee);
@@ -76,7 +73,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
         Battle storage newBattle = battles[battleCount];
         newBattle.battleId = battleCount;
         newBattle.creator1 = msg.sender;
-        newBattle.creator2 = _creator2;
+        newBattle.creator2 = address(0);
         newBattle.ipfsHash1 = _ipfsHash1;
         newBattle.category = _category;
         newBattle.entryFee = _entryFee;
@@ -85,7 +82,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
 
         creatorBattles[msg.sender] =battleCount;
 
-        emit BattleCreated(battleCount, msg.sender, _creator2, _category, _entryFee);
+        emit BattleCreated(battleCount, msg.sender, _category, _entryFee);
         emit ClipSubmitted(battleCount, msg.sender, _ipfsHash1);
     }
 }
