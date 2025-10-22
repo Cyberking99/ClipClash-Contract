@@ -47,8 +47,12 @@ contract ClipClash is Ownable, ReentrancyGuard {
         address indexed creator,
         string ipfsHash
     );
-
-
+    event Voted(
+        uint256 indexed battleId,
+        address indexed voter,
+        address indexed creator,
+        uint256 amount
+    );
 
     // Constructor
     constructor(address _clashToken, address _treasury) Ownable(msg.sender) {
@@ -100,5 +104,30 @@ contract ClipClash is Ownable, ReentrancyGuard {
         creatorBattles[msg.sender] = _battleId;
 
         emit ClipSubmitted(_battleId, msg.sender, _ipfsHash2);
+    }
+
+    function vote(uint256 _battleId, address _creator, uint256 _amount) external nonReentrant {
+        Battle storage battle = battles[_battleId];
+        require(battle.isActive, "Battle not active");
+        require(
+            block.timestamp < battle.votingEndTime,
+            "Voting period ended"
+        );
+        require(
+            _creator == battle.creator1 || _creator == battle.creator2,
+            "Invalid creator"
+        );
+        require(_amount > 0, "Vote amount must be greater than zero");
+
+        clashToken.safeTransferFrom(msg.sender, address(this), _amount);
+
+        votesPerBattle[_battleId][msg.sender] += _amount;
+        if (_creator == battle.creator1) {
+            battle.votes1 += _amount;
+        } else {
+            battle.votes2 += _amount;
+        }
+
+        emit Voted(_battleId, msg.sender, _creator, _amount);
     }
 }
