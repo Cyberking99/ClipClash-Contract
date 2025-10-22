@@ -86,7 +86,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
         emit ClipSubmitted(battleCount, msg.sender, _ipfsHash1);
     }
 
-    function submitClip(uint256 _battleId, string memory _ipfsHash2) external nonReentrant {
+    function joinBattle(uint256 _battleId, string memory _ipfsHash2) external nonReentrant {
         Battle storage battle = battles[_battleId];
         require(battle.isActive, "Battle not active");
         require(battle.creator2 == address(0), "Creator2 already exist");
