@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+// import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract ClipClash is Ownable, ReentrancyGuard {
 
+    using SafeERC20 for IERC20;
     IERC20 public clashToken;
 
     struct Battle {
@@ -67,12 +69,8 @@ contract ClipClash is Ownable, ReentrancyGuard {
         require(creatorBattles[msg.sender] == 0, "Finish your active battle");
         require(creatorBattles[_creator2] == 0, "Opponent is in active battle");
         require(bytes(_ipfsHash1).length > 0, "Invalid IPFS hash");
-
-        // Transfer entry fee from creator1
-        require(
-            clashToken.transferFrom(msg.sender, address(this), _entryFee),
-            "Entry fee transfer failed"
-        );
+        
+        clashToken.safeTransferFrom(msg.sender, address(this), _entryFee);
 
         battleCount++;
         Battle storage newBattle = battles[battleCount];
