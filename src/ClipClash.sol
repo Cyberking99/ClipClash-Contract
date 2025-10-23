@@ -42,6 +42,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
     mapping(address => UserProfile) public userProfiles;
     mapping(uint256 => mapping(address => uint256)) public votesPerBattle;
     mapping(string => address) public usernameToAddress;
+    mapping(address => uint256) public userPoints;
 
 
     uint256 public constant VOTING_DURATION = 1 days;
@@ -49,8 +50,17 @@ contract ClipClash is Ownable, ReentrancyGuard {
     uint256 public constant CREATOR_REWARD_PERCENT = 70; // 70% of entry fees to winner
     uint256 public constant VOTER_REWARD_PERCENT = 20; // 20% of entry fees to voters
     uint256 public constant PROTOCOL_FEE_PERCENT = 10; // 10% to protocol treasury
+    
+    // Points system
+    uint256 public constant POINTS_PER_WIN = 100;
+    uint256 public constant POINTS_PER_BATTLE = 10;
+    uint256 public constant POINTS_PER_VOTE = 5;
 
     address public treasury;
+
+    // Leaderboard tracking
+    address[] public leaderboardAddresses;
+    mapping(address => bool) public isInLeaderboard;
 
     event BattleCreated(
         uint256 indexed battleId,
@@ -84,13 +94,24 @@ contract ClipClash is Ownable, ReentrancyGuard {
         address indexed userAddress,
         string username
     );
+    event LeaderboardUpdated(
+        address indexed user,
+        uint256 newReputation,
+        uint256 totalWins
+    );
+    event PointsAwarded(
+        address indexed user,
+        uint256 points,
+        string reason
+    );
 
     // Constructor
     constructor(address _clashToken, address _treasury) Ownable(msg.sender) {
         clashToken = IERC20(_clashToken);
         treasury = _treasury;
     }
-    
+
+    // Register a new user
     function registerUser(string memory _username) external {
         require(bytes(_username).length > 0, "Username cannot be empty");
         require(bytes(_username).length <= 32, "Username too long");
@@ -102,6 +123,12 @@ contract ClipClash is Ownable, ReentrancyGuard {
         profile.isRegistered = true;
         
         usernameToAddress[_username] = msg.sender;
+
+        // Add to leaderboard tracking
+        if (!isInLeaderboard[msg.sender]) {
+            leaderboardAddresses.push(msg.sender);
+            isInLeaderboard[msg.sender] = true;
+        }
 
         emit UserRegistered(msg.sender, _username);
     }
@@ -131,6 +158,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
         uint256 reputation,
         uint256 totalBattles,
         uint256 totalWins,
+        uint256 points,
         bool isRegistered
     ) {
         UserProfile storage profile = userProfiles[_user];
@@ -139,6 +167,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
             profile.reputation,
             profile.totalBattles,
             profile.totalWins,
+            userPoints[_user],
             profile.isRegistered
         );
     }
@@ -146,6 +175,183 @@ contract ClipClash is Ownable, ReentrancyGuard {
     // Get address by username
     function getAddressByUsername(string memory _username) external view returns (address) {
         return usernameToAddress[_username];
+    }
+
+    // Get top N users by reputation
+    function getTopUsersByReputation(uint256 _count) external view returns (
+        address[] memory addresses,
+        string[] memory usernames,
+        uint256[] memory reputations,
+        uint256[] memory wins,
+        uint256[] memory points
+    ) {
+        uint256 totalUsers = leaderboardAddresses.length;
+        uint256 count = _count > totalUsers ? totalUsers : _count;
+        
+        addresses = new address[](count);
+        usernames = new string[](count);
+        reputations = new uint256[](count);
+        wins = new uint256[](count);
+        points = new uint256[](count);
+
+        // Create a temporary array to sort
+        address[] memory sortedAddresses = new address[](totalUsers);
+        for (uint256 i = 0; i < totalUsers; i++) {
+            sortedAddresses[i] = leaderboardAddresses[i];
+        }
+
+        // Simple bubble sort by reputation (descending)
+        for (uint256 i = 0; i < totalUsers; i++) {
+            for (uint256 j = i + 1; j < totalUsers; j++) {
+                if (userProfiles[sortedAddresses[i]].reputation < userProfiles[sortedAddresses[j]].reputation) {
+                    address temp = sortedAddresses[i];
+                    sortedAddresses[i] = sortedAddresses[j];
+                    sortedAddresses[j] = temp;
+                }
+            }
+        }
+
+        // Fill return arrays with top users
+        for (uint256 i = 0; i < count; i++) {
+            address userAddr = sortedAddresses[i];
+            addresses[i] = userAddr;
+            usernames[i] = userProfiles[userAddr].username;
+            reputations[i] = userProfiles[userAddr].reputation;
+            wins[i] = userProfiles[userAddr].totalWins;
+            points[i] = userPoints[userAddr];
+        }
+
+        return (addresses, usernames, reputations, wins, points);
+    }
+
+    // Get top N users by total wins
+    function getTopUsersByWins(uint256 _count) external view returns (
+        address[] memory addresses,
+        string[] memory usernames,
+        uint256[] memory reputations,
+        uint256[] memory wins,
+        uint256[] memory points
+    ) {
+        uint256 totalUsers = leaderboardAddresses.length;
+        uint256 count = _count > totalUsers ? totalUsers : _count;
+        
+        addresses = new address[](count);
+        usernames = new string[](count);
+        reputations = new uint256[](count);
+        wins = new uint256[](count);
+        points = new uint256[](count);
+
+        // Create a temporary array to sort
+        address[] memory sortedAddresses = new address[](totalUsers);
+        for (uint256 i = 0; i < totalUsers; i++) {
+            sortedAddresses[i] = leaderboardAddresses[i];
+        }
+
+        // Simple bubble sort by wins (descending)
+        for (uint256 i = 0; i < totalUsers; i++) {
+            for (uint256 j = i + 1; j < totalUsers; j++) {
+                if (userProfiles[sortedAddresses[i]].totalWins < userProfiles[sortedAddresses[j]].totalWins) {
+                    address temp = sortedAddresses[i];
+                    sortedAddresses[i] = sortedAddresses[j];
+                    sortedAddresses[j] = temp;
+                }
+            }
+        }
+
+        // Fill return arrays with top users
+        for (uint256 i = 0; i < count; i++) {
+            address userAddr = sortedAddresses[i];
+            addresses[i] = userAddr;
+            usernames[i] = userProfiles[userAddr].username;
+            reputations[i] = userProfiles[userAddr].reputation;
+            wins[i] = userProfiles[userAddr].totalWins;
+            points[i] = userPoints[userAddr];
+        }
+
+        return (addresses, usernames, reputations, wins, points);
+    }
+
+    // Get user rank by reputation
+    function getUserRankByReputation(address _user) external view returns (uint256) {
+        require(userProfiles[_user].isRegistered, "User not registered");
+        
+        uint256 rank = 1;
+        uint256 userReputation = userProfiles[_user].reputation;
+        
+        for (uint256 i = 0; i < leaderboardAddresses.length; i++) {
+            address otherUser = leaderboardAddresses[i];
+            if (otherUser != _user && userProfiles[otherUser].reputation > userReputation) {
+                rank++;
+            }
+        }
+        
+        return rank;
+    }
+
+    // Get top N users by points
+    function getTopUsersByPoints(uint256 _count) external view returns (
+        address[] memory addresses,
+        string[] memory usernames,
+        uint256[] memory points,
+        uint256[] memory wins
+    ) {
+        uint256 totalUsers = leaderboardAddresses.length;
+        uint256 count = _count > totalUsers ? totalUsers : _count;
+        
+        addresses = new address[](count);
+        usernames = new string[](count);
+        points = new uint256[](count);
+        wins = new uint256[](count);
+
+        // Create a temporary array to sort
+        address[] memory sortedAddresses = new address[](totalUsers);
+        for (uint256 i = 0; i < totalUsers; i++) {
+            sortedAddresses[i] = leaderboardAddresses[i];
+        }
+
+        // Simple bubble sort by points (descending)
+        for (uint256 i = 0; i < totalUsers; i++) {
+            for (uint256 j = i + 1; j < totalUsers; j++) {
+                if (userPoints[sortedAddresses[i]] < userPoints[sortedAddresses[j]]) {
+                    address temp = sortedAddresses[i];
+                    sortedAddresses[i] = sortedAddresses[j];
+                    sortedAddresses[j] = temp;
+                }
+            }
+        }
+
+        // Fill return arrays with top users
+        for (uint256 i = 0; i < count; i++) {
+            address userAddr = sortedAddresses[i];
+            addresses[i] = userAddr;
+            usernames[i] = userProfiles[userAddr].username;
+            points[i] = userPoints[userAddr];
+            wins[i] = userProfiles[userAddr].totalWins;
+        }
+
+        return (addresses, usernames, points, wins);
+    }
+
+    // Get user rank by points
+    function getUserRankByPoints(address _user) external view returns (uint256) {
+        require(userProfiles[_user].isRegistered, "User not registered");
+        
+        uint256 rank = 1;
+        uint256 userPts = userPoints[_user];
+        
+        for (uint256 i = 0; i < leaderboardAddresses.length; i++) {
+            address otherUser = leaderboardAddresses[i];
+            if (otherUser != _user && userPoints[otherUser] > userPts) {
+                rank++;
+            }
+        }
+        
+        return rank;
+    }
+
+    // Get total number of registered users
+    function getTotalUsers() external view returns (uint256) {
+        return leaderboardAddresses.length;
     }
 
     // Create a new battle
@@ -173,7 +379,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
         newBattle.votingEndTime = block.timestamp + VOTING_DURATION;
         newBattle.isActive = true;
 
-        creatorBattles[msg.sender] =battleCount;
+        creatorBattles[msg.sender] = battleCount;
 
         emit BattleCreated(battleCount, msg.sender, _category, _entryFee);
         emit ClipSubmitted(battleCount, msg.sender, _ipfsHash1);
@@ -211,6 +417,12 @@ contract ClipClash is Ownable, ReentrancyGuard {
 
         clashToken.safeTransferFrom(msg.sender, address(this), _amount);
 
+        // Award points for voting
+        if (userProfiles[msg.sender].isRegistered) {
+            userPoints[msg.sender] += POINTS_PER_VOTE;
+            emit PointsAwarded(msg.sender, POINTS_PER_VOTE, "voting");
+        }
+
         votesPerBattle[_battleId][msg.sender] += _amount;
         if (_creator == battle.creator1) {
             battle.votes1 += _amount;
@@ -229,12 +441,25 @@ contract ClipClash is Ownable, ReentrancyGuard {
             "Voting period not ended"
         );
 
+        // Update battle stats for both creators
+        userProfiles[battle.creator1].totalBattles++;
+        userProfiles[battle.creator2].totalBattles++;
+
+        // Award participation points
+        userPoints[battle.creator1] += POINTS_PER_BATTLE;
+        userPoints[battle.creator2] += POINTS_PER_BATTLE;
+        emit PointsAwarded(battle.creator1, POINTS_PER_BATTLE, "battle_participation");
+        emit PointsAwarded(battle.creator2, POINTS_PER_BATTLE, "battle_participation");
+
         // Determine winner
         address winner;
+        address loser;
         if (battle.votes1 > battle.votes2) {
             winner = battle.creator1;
+            loser = battle.creator2;
         } else if (battle.votes2 > battle.votes1) {
             winner = battle.creator2;
+            loser = battle.creator1;
         } else {
             // Tie: Refund entry fees
             clashToken.safeTransfer(battle.creator1, battle.entryFee);
@@ -244,6 +469,12 @@ contract ClipClash is Ownable, ReentrancyGuard {
             creatorBattles[battle.creator2] = 0;
             return;
         }
+
+        // Update winner stats and award points
+        userProfiles[winner].totalWins++;
+        userProfiles[winner].reputation += 100; // Award reputation points
+        userPoints[winner] += POINTS_PER_WIN;
+        emit PointsAwarded(winner, POINTS_PER_WIN, "battle_win");
 
         // Calculate rewards
         uint256 totalEntryFees = battle.entryFee * 2;
@@ -263,5 +494,6 @@ contract ClipClash is Ownable, ReentrancyGuard {
 
         emit BattleEnded(_battleId, winner, creatorReward, voterRewardPool);
         emit RewardsDistributed(_battleId, winner, creatorReward);
+        emit LeaderboardUpdated(winner, userProfiles[winner].reputation, userProfiles[winner].totalWins);
     }
 }
