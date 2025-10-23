@@ -25,11 +25,24 @@ contract ClipClash is Ownable, ReentrancyGuard {
         address winner;
         bool isActive;
     }
+
+    struct UserProfile {
+        string username;
+        uint256 reputation;
+        uint256 totalBattles;
+        uint256 totalWins;
+        uint256[] clipIds;
+        uint256[] battleIds;
+        bool isRegistered;
+    }
     
     uint256 public battleCount;
     mapping(uint256 => Battle) public battles;
     mapping(address => uint256) public creatorBattles;
+    mapping(address => UserProfile) public userProfiles;
     mapping(uint256 => mapping(address => uint256)) public votesPerBattle;
+    mapping(string => address) public usernameToAddress;
+
 
     uint256 public constant VOTING_DURATION = 1 days;
     uint256 public constant MIN_ENTRY_FEE = 1 ether;
@@ -67,11 +80,72 @@ contract ClipClash is Ownable, ReentrancyGuard {
         address indexed recipient,
         uint256 amount
     );
+    event UserRegistered(
+        address indexed userAddress,
+        string username
+    );
 
     // Constructor
     constructor(address _clashToken, address _treasury) Ownable(msg.sender) {
         clashToken = IERC20(_clashToken);
         treasury = _treasury;
+    }
+    
+    function registerUser(string memory _username) external {
+        require(bytes(_username).length > 0, "Username cannot be empty");
+        require(bytes(_username).length <= 32, "Username too long");
+        require(!userProfiles[msg.sender].isRegistered, "User already registered");
+        require(usernameToAddress[_username] == address(0), "Username already taken");
+
+        UserProfile storage profile = userProfiles[msg.sender];
+        profile.username = _username;
+        profile.isRegistered = true;
+        
+        usernameToAddress[_username] = msg.sender;
+
+        emit UserRegistered(msg.sender, _username);
+    }
+
+    // Update username
+    function updateUsername(string memory _newUsername) external {
+        require(userProfiles[msg.sender].isRegistered, "User not registered");
+        require(bytes(_newUsername).length > 0, "Username cannot be empty");
+        require(bytes(_newUsername).length <= 32, "Username too long");
+        require(usernameToAddress[_newUsername] == address(0), "Username already taken");
+
+        string memory oldUsername = userProfiles[msg.sender].username;
+        
+        // Remove old username mapping
+        delete usernameToAddress[oldUsername];
+        
+        // Set new username
+        userProfiles[msg.sender].username = _newUsername;
+        usernameToAddress[_newUsername] = msg.sender;
+
+        emit UserRegistered(msg.sender, _newUsername);
+    }
+
+    // Get user profile by address
+    function getUserProfile(address _user) external view returns (
+        string memory username,
+        uint256 reputation,
+        uint256 totalBattles,
+        uint256 totalWins,
+        bool isRegistered
+    ) {
+        UserProfile storage profile = userProfiles[_user];
+        return (
+            profile.username,
+            profile.reputation,
+            profile.totalBattles,
+            profile.totalWins,
+            profile.isRegistered
+        );
+    }
+
+    // Get address by username
+    function getAddressByUsername(string memory _username) external view returns (address) {
+        return usernameToAddress[_username];
     }
 
     // Create a new battle
@@ -81,6 +155,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
         string memory _ipfsHash1
     ) external nonReentrant {
         require(msg.sender != address(0), "Invalid creator");
+        require(userProfiles[msg.sender].isRegistered, "Must be registered");
         require(_entryFee >= MIN_ENTRY_FEE, "Entry fee too low");
         require(creatorBattles[msg.sender] == 0, "Finish your active battle");
         require(bytes(_ipfsHash1).length > 0, "Invalid IPFS hash");
@@ -107,6 +182,7 @@ contract ClipClash is Ownable, ReentrancyGuard {
     function joinBattle(uint256 _battleId, string memory _ipfsHash2) external nonReentrant {
         Battle storage battle = battles[_battleId];
         require(battle.isActive, "Battle not active");
+        require(userProfiles[msg.sender].isRegistered, "Must be registered");
         require(battle.creator2 == address(0), "Creator2 already exist");
         require(bytes(battle.ipfsHash2).length == 0, "Clip already submitted");
         require(bytes(_ipfsHash2).length > 0, "Invalid IPFS hash");
