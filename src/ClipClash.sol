@@ -33,6 +33,9 @@ contract ClipClash is Ownable, ReentrancyGuard {
 
     uint256 public constant VOTING_DURATION = 1 days;
     uint256 public constant MIN_ENTRY_FEE = 1 ether;
+    uint256 public constant CREATOR_REWARD_PERCENT = 70; // 70% of entry fees to winner
+    uint256 public constant VOTER_REWARD_PERCENT = 20; // 20% of entry fees to voters
+    uint256 public constant PROTOCOL_FEE_PERCENT = 10; // 10% to protocol treasury
 
     address public treasury;
 
@@ -51,6 +54,17 @@ contract ClipClash is Ownable, ReentrancyGuard {
         uint256 indexed battleId,
         address indexed voter,
         address indexed creator,
+        uint256 amount
+    );
+    event BattleEnded(
+        uint256 indexed battleId,
+        address indexed winner,
+        uint256 creatorReward,
+        uint256 voterReward
+    );
+    event RewardsDistributed(
+        uint256 indexed battleId,
+        address indexed recipient,
         uint256 amount
     );
 
@@ -129,5 +143,49 @@ contract ClipClash is Ownable, ReentrancyGuard {
         }
 
         emit Voted(_battleId, msg.sender, _creator, _amount);
+    }
+
+    function endBattle(uint256 _battleId) external nonReentrant {
+        Battle storage battle = battles[_battleId];
+        require(battle.isActive, "Battle not active");
+        require(
+            block.timestamp >= battle.votingEndTime,
+            "Voting period not ended"
+        );
+
+        // Determine winner
+        address winner;
+        if (battle.votes1 > battle.votes2) {
+            winner = battle.creator1;
+        } else if (battle.votes2 > battle.votes1) {
+            winner = battle.creator2;
+        } else {
+            // Tie: Refund entry fees
+            clashToken.safeTransfer(battle.creator1, battle.entryFee);
+            clashToken.safeTransfer(battle.creator2, battle.entryFee);
+            battle.isActive = false;
+            creatorBattles[battle.creator1] = 0;
+            creatorBattles[battle.creator2] = 0;
+            return;
+        }
+
+        // Calculate rewards
+        uint256 totalEntryFees = battle.entryFee * 2;
+        uint256 creatorReward = (totalEntryFees * CREATOR_REWARD_PERCENT) / 100;
+        uint256 voterRewardPool = (totalEntryFees * VOTER_REWARD_PERCENT) / 100;
+        uint256 protocolFee = (totalEntryFees * PROTOCOL_FEE_PERCENT) / 100;
+
+        // Distribute rewards
+        clashToken.safeTransfer(winner, creatorReward);
+        clashToken.safeTransfer(treasury, protocolFee);
+
+        // Voter rewards are claimable separately to save gas
+        battle.winner = winner;
+        battle.isActive = false;
+        creatorBattles[battle.creator1] = 0;
+        creatorBattles[battle.creator2] = 0;
+
+        emit BattleEnded(_battleId, winner, creatorReward, voterRewardPool);
+        emit RewardsDistributed(_battleId, winner, creatorReward);
     }
 }
